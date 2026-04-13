@@ -1,0 +1,19 @@
+[project]
+name = "image-platform-api"
+version = "0.1.0"
+description = "FastAPI service for the image platform"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "alembic>=1.14.0",
+  "fastapi>=0.115.6",
+  "image-platform-shared",
+  "httpx>=0.28.1",
+  "uvicorn[standard]>=0.34.0"
+]
+
+[tool.uv.sources]
+image-platform-shared = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=75.6.0"]
+build-backend = "setuptools.build_meta"
