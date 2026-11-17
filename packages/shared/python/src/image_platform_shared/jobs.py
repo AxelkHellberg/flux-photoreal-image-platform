@@ -40,6 +40,10 @@ class ReaperOutcome:
 _RANDOM = SystemRandom()
 
 
+class InvalidHistoryCursorError(ValueError):
+    """A history cursor cannot be decoded into a timestamp and job ID."""
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -102,8 +106,17 @@ def _encode_cursor(job: ImageJob) -> str:
 
 
 def _decode_cursor(cursor: str) -> tuple[datetime, str]:
-    payload = json.loads(base64.urlsafe_b64decode(cursor.encode("utf-8")).decode("utf-8"))
-    return datetime.fromisoformat(payload["created_at"]), str(payload["id"])
+    try:
+        decoded = base64.b64decode(cursor.encode("ascii"), altchars=b"-_", validate=True)
+        payload = json.loads(decoded.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Expected an object")
+        created_at, job_id = payload.get("created_at"), payload.get("id")
+        if not isinstance(created_at, str) or not isinstance(job_id, str) or not job_id:
+            raise ValueError("Expected a timestamp and job ID")
+        return datetime.fromisoformat(created_at), job_id
+    except ValueError as exc:
+        raise InvalidHistoryCursorError("Invalid history cursor") from exc
 
 
 def serialize_job(job: ImageJob, settings: Settings) -> ImageJobResponse:
@@ -186,7 +199,7 @@ def list_jobs(
     session: Session, settings: Settings, limit: int = 20, cursor: str | None = None
 ) -> tuple[list[ImageJobResponse], str | None]:
     stmt = select(ImageJob).order_by(desc(ImageJob.created_at), desc(ImageJob.id)).limit(limit + 1)
-    if cursor:
+    if cursor is not None:
         created_at, job_id = _decode_cursor(cursor)
         stmt = stmt.where(
             or_(

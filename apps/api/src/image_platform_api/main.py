@@ -7,7 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from image_platform_shared.config import Settings, get_settings
 from image_platform_shared.enums import JobStatus
-from image_platform_shared.jobs import create_job, get_job, list_jobs, retry_job, serialize_job, with_input_image
+from image_platform_shared.jobs import (
+    InvalidHistoryCursorError,
+    create_job,
+    get_job,
+    list_jobs,
+    retry_job,
+    serialize_job,
+    with_input_image,
+)
 from image_platform_shared.logging import configure_logging, get_logger
 from image_platform_shared.queue import ImageJobQueue
 from image_platform_shared.schemas import (
@@ -145,7 +153,10 @@ def image_history(
     session: Session = Depends(get_db),
     settings: Settings = Depends(get_app_settings),
 ) -> ImageJobListResponse:
-    items, next_cursor = list_jobs(session, settings, limit=limit, cursor=cursor)
+    try:
+        items, next_cursor = list_jobs(session, settings, limit=limit, cursor=cursor)
+    except InvalidHistoryCursorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ImageJobListResponse(items=items, next_cursor=next_cursor)
 
 
