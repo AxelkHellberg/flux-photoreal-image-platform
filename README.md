@@ -223,7 +223,9 @@ Optional request controls:
 
 - `NEGATIVE_PROMPT`
 - `ASPECT_RATIO`
-- `SEED`
+- `SEED`: optional signed 64-bit integer (`-9223372036854775808` through `9223372036854775807`);
+  zero is preserved, and omitting the seed or sending JSON `null` generates a random seed.
+  The API returns HTTP 422 for seeds outside this storage range before creating or queueing a job.
 - `AUTO_ENHANCE_PROMPT`
 - `OUTPUT`
 - `OPEN_GENERATED_IMAGE`
