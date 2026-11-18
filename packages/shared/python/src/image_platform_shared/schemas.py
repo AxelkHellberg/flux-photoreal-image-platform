@@ -11,7 +11,7 @@ class CreateImageRequest(BaseModel):
     negative_prompt: str = Field(default="", max_length=4000)
     aspect_ratio: AspectRatioPreset
     mode: GenerationMode
-    seed: int | None = None
+    seed: int | None = Field(default=None, ge=-(2**63), le=2**63 - 1)
     auto_enhance_prompt: bool = False
     input_image_base64: str | None = None
     input_image_mime_type: str | None = None

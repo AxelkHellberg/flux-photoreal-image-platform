@@ -3,11 +3,57 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 
+import pytest
 from image_platform_shared.enums import JobStatus
 from image_platform_shared.jobs import mark_success
 from image_platform_shared.models import ImageJob
 from PIL import Image
 from sqlalchemy.orm import Session
+
+
+@pytest.mark.parametrize("seed", [-(2**63) - 1, 2**63])
+def test_create_image_rejects_seed_outside_storage_range(client, session_factory, seed):
+    test_client, queue = client
+    response = test_client.post(
+        "/v1/images",
+        json={"prompt": "Seed boundary fixture", "aspect_ratio": "1:1", "mode": "photoreal", "seed": seed},
+    )
+
+    assert response.status_code == 422
+    assert any(error["loc"] == ["body", "seed"] for error in response.json()["detail"])
+    assert queue.items == []
+    with session_factory() as session:
+        assert session.query(ImageJob).count() == 0
+
+
+@pytest.mark.parametrize("seed", [-(2**63), -1, 0, 1, 2**63 - 1])
+def test_create_image_preserves_supported_seed(client, session_factory, seed):
+    test_client, queue = client
+    response = test_client.post(
+        "/v1/images",
+        json={"prompt": "Seed boundary fixture", "aspect_ratio": "1:1", "mode": "photoreal", "seed": seed},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["seed"] == seed
+    assert queue.items == [body["id"]]
+    with session_factory() as session:
+        assert session.get(ImageJob, body["id"]).seed == seed
+
+
+@pytest.mark.parametrize("seed_payload", [{}, {"seed": None}])
+def test_create_image_generates_seed_when_unspecified(client, seed_payload):
+    test_client, queue = client
+    response = test_client.post(
+        "/v1/images",
+        json={"prompt": "Random seed fixture", "aspect_ratio": "1:1", "mode": "photoreal", **seed_payload},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert 1 <= body["seed"] <= 2_147_483_647
+    assert queue.items == [body["id"]]
 
 
 def test_create_image_queues_job(client):
