@@ -41,7 +41,10 @@ class S3CompatibleStorageBackend(StorageBackend):
     def ensure_ready(self) -> None:
         try:
             self.client.head_bucket(Bucket=self.bucket_name)
-        except ClientError:
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code")
+            if error_code not in {"404", "NoSuchBucket", "NotFound"}:
+                raise
             self.client.create_bucket(Bucket=self.bucket_name)
 
     def put_bytes(self, key: str, payload: bytes, content_type: str) -> None:
