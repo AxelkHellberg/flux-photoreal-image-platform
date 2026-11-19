@@ -31,11 +31,6 @@ MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024
 def _decode_input_image(payload: CreateImageRequest, settings: Settings) -> tuple[bytes, str, float] | None:
     if not payload.input_image_base64:
         return None
-    if not payload.input_image_mime_type:
-        raise HTTPException(
-            status_code=422,
-            detail="input_image_mime_type is required when input_image_base64 is provided",
-        )
 
     encoded = payload.input_image_base64.strip()
     if encoded.startswith("data:"):
@@ -45,6 +40,12 @@ def _decode_input_image(payload: CreateImageRequest, settings: Settings) -> tupl
             raise HTTPException(status_code=422, detail="Malformed input image data URL") from exc
         if not payload.input_image_mime_type:
             payload.input_image_mime_type = header.removeprefix("data:").split(";", 1)[0]
+
+    if not payload.input_image_mime_type:
+        raise HTTPException(
+            status_code=422,
+            detail="input_image_mime_type is required when input_image_base64 is provided",
+        )
 
     try:
         raw = base64.b64decode(encoded, validate=True)
