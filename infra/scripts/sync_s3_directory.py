@@ -42,8 +42,10 @@ def iter_local_files(root: Path) -> list[Path]:
 def list_remote_sizes(client: BaseClient, bucket: str, prefix: str) -> dict[str, int]:
     sizes: dict[str, int] = {}
     continuation_token: str | None = None
+    # Directory sync must exclude sibling names such as "models-backup".
+    directory_prefix = f"{prefix}/" if prefix else ""
     while True:
-        kwargs = {"Bucket": bucket, "Prefix": prefix}
+        kwargs = {"Bucket": bucket, "Prefix": directory_prefix}
         if continuation_token:
             kwargs["ContinuationToken"] = continuation_token
         response = client.list_objects_v2(**kwargs)
