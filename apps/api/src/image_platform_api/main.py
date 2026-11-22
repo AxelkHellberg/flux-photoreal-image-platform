@@ -133,6 +133,8 @@ def create_image(
         )
         session.flush()
         session.refresh(job)
+    # A worker may consume the queued ID immediately on a separate connection.
+    session.commit()
     queue.enqueue(job.id)
     logger.info("job.created", job_id=job.id, mode=job.mode, aspect_ratio=job.aspect_ratio)
     return serialize_job(job, settings)
@@ -194,6 +196,7 @@ def retry_image(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     retried_job = retry_job(session, job, payload.seed_strategy, settings)
+    session.commit()
     queue.enqueue(retried_job.id)
     logger.info(
         "job.retried",
