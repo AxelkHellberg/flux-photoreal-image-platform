@@ -364,10 +364,21 @@ def requeue_stale_jobs(session: Session, settings: Settings) -> ReaperOutcome:
         if stale_reason is None or stale_message is None:
             continue
 
+        # A worker or another reaper may change the job after the scan. Only
+        # apply the timeout decision to the exact running state we inspected.
+        unchanged = and_(
+            ImageJob.id == job.id,
+            ImageJob.status == JobStatus.RUNNING,
+            ImageJob.lease_token == job.lease_token,
+            ImageJob.heartbeat_at == job.heartbeat_at,
+            ImageJob.last_progress_at == job.last_progress_at,
+            ImageJob.attempt_count == job.attempt_count,
+            ImageJob.max_attempts == job.max_attempts,
+        )
         if job.attempt_count < job.max_attempts:
-            session.execute(
+            result = session.execute(
                 update(ImageJob)
-                .where(ImageJob.id == job.id, ImageJob.lease_token == job.lease_token)
+                .where(unchanged)
                 .values(
                     status=JobStatus.QUEUED,
                     lease_token=None,
@@ -381,11 +392,12 @@ def requeue_stale_jobs(session: Session, settings: Settings) -> ReaperOutcome:
                     started_at=None,
                 )
             )
-            requeued.append(job.id)
+            if result.rowcount > 0:
+                requeued.append(job.id)
         else:
-            session.execute(
+            result = session.execute(
                 update(ImageJob)
-                .where(ImageJob.id == job.id, ImageJob.lease_token == job.lease_token)
+                .where(unchanged)
                 .values(
                     status=JobStatus.FAILED,
                     error_code=stale_reason,
@@ -394,5 +406,6 @@ def requeue_stale_jobs(session: Session, settings: Settings) -> ReaperOutcome:
                     finished_at=now,
                 )
             )
-            failed.append(job.id)
+            if result.rowcount > 0:
+                failed.append(job.id)
     return ReaperOutcome(requeued_job_ids=requeued, failed_job_ids=failed)
