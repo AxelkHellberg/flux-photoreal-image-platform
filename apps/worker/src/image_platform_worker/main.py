@@ -108,7 +108,7 @@ def process_job(claimed: ClaimedJob, generator, storage, enhancer) -> None:
             input_image_strength=input_image_strength,
         )
         result = generator.generate(request, on_progress=on_progress)
-        storage_key = f"images/{claimed.job.id}/result.png"
+        storage_key = f"images/{claimed.job.id}/attempts/{claimed.lease_token}/result.png"
         storage.put_bytes(storage_key, result.image_bytes, result.mime_type)
         with session_scope() as session:
             updated = mark_success(

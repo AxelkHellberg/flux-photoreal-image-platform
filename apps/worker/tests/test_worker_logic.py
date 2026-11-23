@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+from unittest.mock import Mock
+
+import pytest
 from image_platform_shared.config import Settings
 from image_platform_shared.database import Base
 from image_platform_shared.enums import AspectRatioPreset, GenerationMode, JobStatus
+from image_platform_shared.generators.base import GenerationResult
 from image_platform_shared.generators.flux import FluxImageGeneratorAdapter
 from image_platform_shared.generators.stub import StubImageGeneratorAdapter
 from image_platform_shared.jobs import claim_job, create_job, mark_success, update_progress
 from image_platform_shared.schemas import CreateImageRequest
+from image_platform_shared.storage import LocalFilesystemStorageBackend
+from image_platform_worker import main as worker_main
 from image_platform_worker.main import build_generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -98,6 +105,53 @@ def test_progress_update_requires_matching_lease():
 
     assert update_progress(session, job.id, claimed.lease_token, 50, "generating") is True
     assert update_progress(session, job.id, "wrong-lease", 80, "generating") is False
+
+
+@pytest.mark.parametrize("stale_finishes_last", [True, False])
+def test_stale_attempt_cannot_replace_successful_result(tmp_path, monkeypatch, stale_finishes_last):
+    session = build_session()
+    settings = Settings(database_url="sqlite+pysqlite:///:memory:")
+    job = create_job(
+        session,
+        CreateImageRequest(
+            prompt="A ceramic bowl in soft daylight",
+            aspect_ratio=AspectRatioPreset.SQUARE,
+            mode=GenerationMode.PHOTOREAL,
+            seed=52,
+        ),
+        settings,
+    )
+    session.commit()
+    stale_claim = claim_job(session, job.id, "worker-old")
+    session.commit()
+    assert stale_claim is not None
+
+    session.query(type(job)).filter_by(id=job.id).update({"lease_token": None, "status": JobStatus.QUEUED})
+    current_claim = claim_job(session, job.id, "worker-current")
+    session.commit()
+    assert current_claim is not None
+
+    storage = LocalFilesystemStorageBackend(str(tmp_path / "storage"))
+    storage.ensure_ready()
+    monkeypatch.setattr(worker_main, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker_main, "session_scope", lambda: nullcontext(session))
+    monkeypatch.setattr(worker_main, "HeartbeatThread", Mock())
+
+    attempts = [(current_claim, b"winning-result"), (stale_claim, b"stale-result")]
+    if not stale_finishes_last:
+        attempts.reverse()
+    for claim, image_bytes in attempts:
+        generator = Mock()
+        generator.generate.return_value = GenerationResult(
+            image_bytes=image_bytes, mime_type="image/png", metadata={}
+        )
+        worker_main.process_job(claim, generator=generator, storage=storage, enhancer=None)
+        session.commit()
+
+    session.refresh(job)
+    assert job.status == JobStatus.SUCCEEDED
+    assert job.lease_token == current_claim.lease_token
+    assert storage.get_bytes(job.storage_key) == b"winning-result"
 
 
 def test_progress_update_refreshes_last_progress_only_when_marker_changes():
