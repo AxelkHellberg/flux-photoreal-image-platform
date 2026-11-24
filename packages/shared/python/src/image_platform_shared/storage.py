@@ -10,6 +10,10 @@ from botocore.exceptions import ClientError
 from image_platform_shared.config import Settings
 
 
+class StorageObjectNotFoundError(FileNotFoundError):
+    """The requested object is absent from the storage backend."""
+
+
 class StorageBackend(ABC):
     bucket_name: str | None
 
@@ -53,7 +57,12 @@ class S3CompatibleStorageBackend(StorageBackend):
         )
 
     def get_bytes(self, key: str) -> bytes:
-        response = self.client.get_object(Bucket=self.bucket_name, Key=key)
+        try:
+            response = self.client.get_object(Bucket=self.bucket_name, Key=key)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"NoSuchKey", "NotFound", "404"}:
+                raise StorageObjectNotFoundError(key) from exc
+            raise
         return response["Body"].read()
 
 
@@ -71,7 +80,10 @@ class LocalFilesystemStorageBackend(StorageBackend):
         destination.write_bytes(payload)
 
     def get_bytes(self, key: str) -> bytes:
-        return (self.root / key).read_bytes()
+        try:
+            return (self.root / key).read_bytes()
+        except FileNotFoundError as exc:
+            raise StorageObjectNotFoundError(key) from exc
 
 
 def create_storage_backend(settings: Settings) -> StorageBackend:

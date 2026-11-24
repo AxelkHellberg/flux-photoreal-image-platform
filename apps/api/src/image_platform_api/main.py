@@ -17,7 +17,7 @@ from image_platform_shared.schemas import (
     ImageJobResponse,
     RetryImageRequest,
 )
-from image_platform_shared.storage import StorageBackend, create_storage_backend
+from image_platform_shared.storage import StorageBackend, StorageObjectNotFoundError, create_storage_backend
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -174,7 +174,10 @@ def image_result(
         raise HTTPException(status_code=409, detail="Job result is not available yet")
     if not job.storage_key or not job.mime_type:
         raise HTTPException(status_code=404, detail="Result file not found")
-    payload = storage.get_bytes(job.storage_key)
+    try:
+        payload = storage.get_bytes(job.storage_key)
+    except StorageObjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Result file not found") from exc
     return Response(
         content=payload,
         media_type=job.mime_type,

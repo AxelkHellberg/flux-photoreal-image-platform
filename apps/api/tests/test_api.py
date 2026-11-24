@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 
+import pytest
 from image_platform_shared.enums import JobStatus
 from image_platform_shared.jobs import mark_success
 from image_platform_shared.models import ImageJob
@@ -31,7 +32,8 @@ def test_create_image_queues_job(client):
     assert queue.items == [body["id"]]
 
 
-def test_result_download_returns_binary(client, session_factory, storage_backend):
+@pytest.mark.parametrize("object_exists", [True, False])
+def test_result_download_handles_stored_and_missing_objects(client, session_factory, storage_backend, object_exists):
     test_client, _ = client
     create_response = test_client.post(
         "/v1/images",
@@ -53,7 +55,8 @@ def test_result_download_returns_binary(client, session_factory, storage_backend
     session.commit()
 
     storage_path = "images/test/result.png"
-    storage_backend.put_bytes(storage_path, b"png-bytes", "image/png")
+    if object_exists:
+        storage_backend.put_bytes(storage_path, b"png-bytes", "image/png")
     mark_success(
         session,
         job_id,
@@ -67,9 +70,13 @@ def test_result_download_returns_binary(client, session_factory, storage_backend
     session.close()
 
     result = test_client.get(f"/v1/images/{job_id}/result")
-    assert result.status_code == 200
-    assert result.headers["content-type"] == "image/png"
-    assert result.content == b"png-bytes"
+    if object_exists:
+        assert result.status_code == 200
+        assert result.headers["content-type"] == "image/png"
+        assert result.content == b"png-bytes"
+    else:
+        assert result.status_code == 404
+        assert result.json() == {"detail": "Result file not found"}
 
 
 def test_create_image_persists_input_image_metadata(client, session_factory, storage_backend):
