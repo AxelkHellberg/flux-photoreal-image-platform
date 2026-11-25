@@ -44,6 +44,23 @@ def slugify(text: str, max_length: int = 50) -> str:
     return normalized[:max_length].strip("-") or "image"
 
 
+def positive_seconds(value: str) -> int:
+    try:
+        seconds = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return seconds
+
+
+def environment_seconds(name: str, default: int) -> int:
+    try:
+        return positive_seconds(os.environ.get(name, str(default)))
+    except argparse.ArgumentTypeError as exc:
+        raise SystemExit(f"{name} must be a positive integer") from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Create an image job against the remote API and download the PNG.")
     parser.add_argument("--prompt", help="Prompt for the generated image.")
@@ -66,8 +83,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", help="Custom output path for the PNG.")
     parser.add_argument("--output-dir", help="Directory for generated images when --output is not provided.")
-    parser.add_argument("--timeout-seconds", type=int, help="How long to wait for a terminal job state before failing.")
-    parser.add_argument("--poll-interval-seconds", type=int, help="Polling interval against the API.")
+    parser.add_argument(
+        "--timeout-seconds",
+        type=positive_seconds,
+        help="Positive seconds to wait for a terminal job state before failing.",
+    )
+    parser.add_argument(
+        "--poll-interval-seconds", type=positive_seconds, help="Positive polling interval against the API."
+    )
     parser.add_argument("--open", dest="open_result", action="store_true", help="Open the downloaded image.")
     parser.add_argument("--no-open", dest="open_result", action="store_false", help="Do not open the image.")
     parser.set_defaults(open_result=None)
@@ -122,9 +145,15 @@ def resolve_settings(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str
             request_payload["input_image_strength"] = float(input_strength)
 
     output_dir = Path(args.output_dir or os.environ.get("REMOTE_OUTPUT_DIR", "./outputs")).expanduser()
-    timeout_seconds = args.timeout_seconds or int(os.environ.get("REMOTE_GENERATE_TIMEOUT_SECONDS", "3600"))
-    poll_interval_seconds = args.poll_interval_seconds or int(
-        os.environ.get("REMOTE_GENERATE_POLL_INTERVAL_SECONDS", "5"),
+    timeout_seconds = (
+        args.timeout_seconds
+        if args.timeout_seconds is not None
+        else environment_seconds("REMOTE_GENERATE_TIMEOUT_SECONDS", 3600)
+    )
+    poll_interval_seconds = (
+        args.poll_interval_seconds
+        if args.poll_interval_seconds is not None
+        else environment_seconds("REMOTE_GENERATE_POLL_INTERVAL_SECONDS", 5)
     )
     open_default = parse_bool(os.environ.get("OPEN_GENERATED_IMAGE"), sys.platform == "darwin")
     open_result = args.open_result if args.open_result is not None else open_default
