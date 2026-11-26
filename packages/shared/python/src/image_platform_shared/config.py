@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     log_level: str = "INFO"
-    max_attempts: int = 3
+    max_attempts: int = Field(default=3, ge=1)
     heartbeat_interval_seconds: int = 10
     heartbeat_timeout_seconds: int = 60
     progress_timeout_seconds: int = 300
