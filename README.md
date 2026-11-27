@@ -152,6 +152,16 @@ If you want the local control plane without a local worker, use:
 make local-stack-up
 ```
 
+## Shared client checks
+
+Run the network-free shared API client tests with Node.js 22.6 or newer:
+
+```bash
+pnpm test:shared
+```
+
+The tests stub `fetch` and do not require the API, queue, storage, or a GPU worker.
+
 ## RunPod worker workflow
 
 1. Create a RunPod pod with:
