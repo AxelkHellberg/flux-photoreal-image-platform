@@ -19,7 +19,9 @@ from image_platform_shared.schemas import (
 )
 from image_platform_shared.storage import StorageBackend, create_storage_backend
 from PIL import Image, ImageOps, UnidentifiedImageError
+from redis.exceptions import RedisError
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from image_platform_api.dependencies import get_app_settings, get_db, get_queue, get_storage
@@ -101,8 +103,20 @@ def health(
     settings: Settings = Depends(get_app_settings),
     queue: ImageJobQueue = Depends(get_queue),
 ) -> HealthResponse:
-    session.execute(text("SELECT 1"))
-    queue.ping()
+    try:
+        session.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        logger.warning("health.database_unavailable")
+        raise HTTPException(status_code=503, detail="Database is unavailable") from exc
+
+    try:
+        queue_ready = queue.ping()
+    except RedisError as exc:
+        logger.warning("health.queue_unavailable")
+        raise HTTPException(status_code=503, detail="Queue is unavailable") from exc
+    if not queue_ready:
+        raise HTTPException(status_code=503, detail="Queue is unavailable")
+
     return HealthResponse(
         status="ok",
         queue_name=settings.redis_queue_name,
